@@ -1,0 +1,78 @@
+@prefix lv2:   <http://lv2plug.in/ns/lv2core#> .
+@prefix foaf:  <http://xmlns.com/foaf/0.1/> .
+@prefix doap:  <http://usefulinc.com/ns/doap#> .
+@prefix urid:  <http://lv2plug.in/ns/ext/urid#> .
+@prefix atom:  <http://lv2plug.in/ns/ext/atom#> .
+@prefix midi:  <http://lv2plug.in/ns/ext/midi#> .
+@prefix ui:    <http://lv2plug.in/ns/extensions/ui#> .
+@prefix work:  <http://lv2plug.in/ns/ext/worker#> .
+@prefix state: <http://lv2plug.in/ns/ext/state#> .
+@prefix patch: <http://lv2plug.in/ns/ext/patch#> .
+@prefix rsz:   <http://lv2plug.in/ns/ext/resize-port#> .
+
+<http://www.henhed.se/about#me>
+    a foaf:Person ;
+    foaf:name "Henrik Hedelund" ;
+    foaf:homepage <http://www.henhed.se/> .
+
+<http://www.henhed.se/lv2/fonograf>
+    a lv2:Plugin ,
+        lv2:InstrumentPlugin ;
+    lv2:project <https://github.com/henhed/fonograf> ;
+    doap:name "FonoGraf" ;
+    doap:maintainer <http://www.henhed.se/about#me> ;
+    doap:license <http://www.gnu.org/licenses/gpl.html> ;
+    lv2:requiredFeature urid:map ,
+        work:schedule ;
+    lv2:optionalFeature lv2:hardRTCapable ,
+        state:threadSafeRestore ;
+    lv2:extensionData work:interface ,
+        state:interface ;
+    ui:ui <http://www.henhed.se/lv2/fonograf#ui> ;
+    lv2:port [
+        a lv2:AudioPort ,
+            lv2:OutputPort ;
+        lv2:index 0 ;
+        lv2:symbol "OUT_LEFT" ;
+        lv2:name "Out Left" ;
+        ] , [
+        a lv2:AudioPort ,
+            lv2:OutputPort ;
+        lv2:index 1 ;
+        lv2:symbol "OUT_RIGHT" ;
+        lv2:name "Out Right" ;
+        ] , [
+        a lv2:InputPort ,
+            atom:AtomPort ;
+        atom:bufferType atom:Sequence ;
+        atom:supports midi:MidiEvent ,
+            patch:Message ;
+        rsz:minimumSize 1048576 ;
+        lv2:designation lv2:control ;
+        lv2:index 2 ;
+        lv2:symbol "CONTROL" ;
+        lv2:name "Control" ;
+        ] , [
+        a lv2:OutputPort ,
+            atom:AtomPort ;
+        atom:bufferType atom:Sequence ;
+        atom:supports patch:Message ;
+        rsz:minimumSize 1048576 ;
+        lv2:designation lv2:control ;
+        lv2:index 3 ;
+        lv2:symbol "NOTIFY" ;
+        lv2:name "Notify" ;
+        ] .
+
+<http://www.henhed.se/lv2/fonograf#ui>
+    a ui:Gtk3UI ;
+    lv2:project <https://github.com/henhed/fonograf> ;
+    doap:name "FonoGrafUI" ;
+    doap:maintainer <http://www.henhed.se/about#me> ;
+    doap:license <http://www.gnu.org/licenses/gpl.html> ;
+    lv2:requiredFeature urid:map ;
+    ui:portNotification [
+        ui:plugin <http://www.henhed.se/lv2/fonograf> ;
+        lv2:symbol "NOTIFY" ;
+        ui:notifyType atom:Blank ;
+        ] .
