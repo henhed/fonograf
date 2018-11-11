@@ -1,0 +1,53 @@
+fonograf-graph {
+    min-height: 128px;
+    min-width: 128px;
+    background-color: #1e272e;
+}
+
+fonograf-node {
+    min-height: 128px;
+    min-width: 128px;
+    padding-top: 8px; /* @Hack: Source socket size.  */
+    padding-bottom: 8px; /* @Hack: Sink socket size.  */
+    margin-top: 2px; /* @Hack: Source socket margin.  */
+    margin-bottom: 2px; /* @Hack: Sink socket margin.  */
+    outline-width: 10px;
+}
+
+fonograf-node label {
+    font-weight: 700;
+    color: #fff;
+    background-color: rgba(30, 39, 46, .5);
+    margin: 18px;
+    border-radius: 55px;
+    text-shadow: 0 1px rgba(0, 0, 0, .5);
+}
+
+fonograf-node:nth-child(8n+1) { background-color: #fc5c65; }
+fonograf-node:nth-child(8n+1):disabled { background-color: #574345; }
+fonograf-node:nth-child(8n+2) { background-color: #2bcbba; }
+fonograf-node:nth-child(8n+2):disabled { background-color: #3c504e; }
+fonograf-node:nth-child(8n+3) { background-color: #fd9644; }
+fonograf-node:nth-child(8n+3):disabled { background-color: #5b4e44; }
+fonograf-node:nth-child(8n+4) { background-color: #45aaf2; }
+fonograf-node:nth-child(8n+4):disabled { background-color: #45525b; }
+fonograf-node:nth-child(8n+5) { background-color: #fed330; }
+fonograf-node:nth-child(8n+5):disabled { background-color: #605b46; }
+fonograf-node:nth-child(8n+6) { background-color: #4b7bec; }
+fonograf-node:nth-child(8n+6):disabled { background-color: #404654; }
+fonograf-node:nth-child(8n+7) { background-color: #26de81; }
+fonograf-node:nth-child(8n+7):disabled { background-color: #364d41; }
+fonograf-node:nth-child(8n+0) { background-color: #a55eea; }
+fonograf-node:nth-child(8n+0):disabled { background-color: #534a5b; }
+
+popover > grid > * {
+    margin: 10px;
+}
+
+scale {
+    min-width: 128px;
+}
+
+spinbutton {
+    margin-right: 10px;
+}

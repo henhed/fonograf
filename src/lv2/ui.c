@@ -5,10 +5,14 @@
 #include <lv2/lv2plug.in/ns/ext/log/logger.h>
 #include <lv2/lv2plug.in/ns/extensions/ui/ui.h>
 
+#include "../gtk3/graph.h"
+#include "../gtk3/node.h"
+
 typedef struct _FonoGrafUI {
   LV2_Log_Log *log;
   LV2_Log_Logger logger;
   LV2_URID_Map *map;
+  GtkWidget *root;
 } FonoGrafUI;
 
 /* Set up UI.  */
@@ -25,7 +29,6 @@ instantiate (const LV2UI_Descriptor *descriptor, const char *plugin_uri,
   (void) bundle_path;
   (void) write_function;
   (void) controller;
-  (void) widget;
 
   ui = calloc (1, sizeof (FonoGrafUI));
   if (!ui)
@@ -46,9 +49,45 @@ instantiate (const LV2UI_Descriptor *descriptor, const char *plugin_uri,
       return NULL;
     }
 
-  lv2_log_error (&ui->logger,
-                 __FILE__ ":instantiate(%s, %s) not implemented\n",
-                 plugin_uri, bundle_path);
+  ui->root = ui_graph_new ();
+
+  /* Load custom CSS.  */
+  {
+    GtkCssProvider *style_provider = gtk_css_provider_new ();
+    gchar *css_filename = g_build_path ("/", bundle_path, "ui.css", NULL);
+    GError *error = NULL;
+
+    gtk_css_provider_load_from_path (style_provider, css_filename, &error);
+    if (error != NULL)
+      lv2_log_warning (&ui->logger, __FILE__ ": %s\n", error->message);
+    else
+      {
+        GdkScreen *screen = gdk_display_get_default_screen (gdk_display_get_default ());
+        gtk_style_context_add_provider_for_screen (screen,
+                                                   GTK_STYLE_PROVIDER (style_provider),
+                                                   GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+      }
+
+    g_free (css_filename);
+    g_object_unref (style_provider);
+  }
+
+  *widget = (LV2UI_Widget) ui->root;
+
+  /* @Temporary: Sample UI graph */
+  {
+    GtkWidget *node1 = ui_node_new_with_label ("Test #1");
+    GtkWidget *node2 = ui_node_new_with_label ("Test #2");
+    GtkWidget *node3 = ui_node_new_with_label ("Test #3");
+
+    ui_graph_put (UI_GRAPH (ui->root), UI_NODE (node1), .50, .25);
+    ui_graph_put (UI_GRAPH (ui->root), UI_NODE (node2), .25, .50);
+    ui_graph_put (UI_GRAPH (ui->root), UI_NODE (node3), .75, .75);
+
+    ui_graph_connect (UI_GRAPH (ui->root), UI_NODE (node1), UI_NODE (node2));
+    ui_graph_connect (UI_GRAPH (ui->root), UI_NODE (node1), UI_NODE (node3));
+    ui_graph_connect (UI_GRAPH (ui->root), UI_NODE (node2), UI_NODE (node3));
+  }
 
   return ui;
 }
@@ -60,6 +99,8 @@ cleanup (LV2UI_Handle handle)
   FonoGrafUI *ui = (FonoGrafUI *) handle;
   if (!ui)
     return;
+
+  gtk_widget_destroy (ui->root);
 
   free (ui);
 }

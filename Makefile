@@ -10,7 +10,11 @@ SOURCES = $(SRC_PATH)/lv2/fonograf.c
 OBJECTS = $(SOURCES:$(SRC_PATH)/%.c=$(BUILD_PATH)/%.o)
 DEPS = $(OBJECTS:.o=.d)
 
-UI_SOURCES = $(SRC_PATH)/lv2/ui.c
+UI_SOURCES = $(SRC_PATH)/lv2/ui.c \
+	$(SRC_PATH)/gtk3/element.c \
+	$(SRC_PATH)/gtk3/node.c \
+	$(SRC_PATH)/gtk3/edge.c \
+	$(SRC_PATH)/gtk3/graph.c
 UI_OBJECTS = $(UI_SOURCES:$(SRC_PATH)/%.c=$(BUILD_PATH)/%.o)
 UI_DEPS = $(UI_OBJECTS:.o=.d)
 
@@ -27,6 +31,7 @@ release: dirs
 dirs:
 	@echo "Creating directories"
 	@mkdir -p $(dir $(OBJECTS))
+	@mkdir -p $(dir $(UI_OBJECTS))
 	@mkdir -p $(LV2_PATH)
 
 .PHONY: clean
@@ -40,6 +45,7 @@ all: $(LV2_PATH)/$(LV2_NAME) $(LV2_PATH)/$(LV2UI_NAME)
 	@echo "Assembling LV2 bundle: $(LV2_PATH)"
 	@cp lv2/manifest.ttl.in $(LV2_PATH)/manifest.ttl
 	@cp lv2/fonograf.ttl.in $(LV2_PATH)/fonograf.ttl
+	@cp lv2/ui.css $(LV2_PATH)/ui.css
 
 $(LV2_PATH)/$(LV2_NAME): $(OBJECTS)
 	@echo "Linking extension: $@"
@@ -51,6 +57,10 @@ $(LV2_PATH)/$(LV2UI_NAME): $(UI_OBJECTS)
 
 -include $(DEPS)
 
-$(BUILD_PATH)/%.o: $(SRC_PATH)/%.c
+$(BUILD_PATH)/lv2/fonograf.o: $(SRC_PATH)/lv2/fonograf.c
 	@echo "Compiling $< -> $@"
 	$(CC) $(CCFLAGS) -c $< -o $@
+
+$(BUILD_PATH)/%.o: $(SRC_PATH)/%.c
+	@echo "Compiling $< -> $@"
+	$(CC) $(CCFLAGS) $(shell pkg-config --cflags gtk+-3.0) -c $< -o $@
