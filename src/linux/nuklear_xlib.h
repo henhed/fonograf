@@ -497,6 +497,7 @@ nk_xsurf_draw_image(XSurface *surf, short x, short y, unsigned short w, unsigned
     struct nk_image img, struct nk_color col)
 {
     XImageWithAlpha *aimage = img.handle.ptr;
+    NK_UNUSED(col);
     if (aimage){
         if (aimage->clipMask){
             XSetClipMask(surf->dpy, surf->gc, aimage->clipMask);
@@ -581,6 +582,7 @@ nk_xfont_get_text_width(nk_handle handle, float height, const char *text, int le
 {
     XFont *font = (XFont*)handle.ptr;
     XRectangle r;
+    NK_UNUSED(height);
     if(!font || !text)
         return 0;
 
@@ -675,6 +677,7 @@ nk_xlib_copy(nk_handle handle, const char* str, int len)
     xlib.clipboard_len = 0;
     xlib.clipboard_data = malloc((size_t)len);
     if (xlib.clipboard_data) {
+        extern void *memcpy(void *, const void *, size_t);
         memcpy(xlib.clipboard_data, str, (size_t)len);
         xlib.clipboard_len = len;
         XSetSelectionOwner(xlib.dpy, XA_PRIMARY, xlib.root, CurrentTime);
@@ -686,6 +689,7 @@ NK_API int
 nk_xlib_handle_event(Display *dpy, int screen, Window win, XEvent *evt)
 {
     struct nk_context *ctx = &xlib.ctx;
+    NK_UNUSED(screen);
 
     /* optional grabbing behavior */
     if (ctx->input.mouse.grab) {

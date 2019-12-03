@@ -1,21 +1,29 @@
+#define TICKS_PER_SECOND 1000000000
+
 #include "../types.h"
 #include "../platform.h"
+
+#define NK_PRIVATE
+#define NK_INCLUDE_FIXED_TYPES
+#define NK_INCLUDE_STANDARD_IO
+/* #define NK_INCLUDE_STANDARD_VARARGS */
+#define NK_INCLUDE_DEFAULT_ALLOCATOR
+#define NK_IMPLEMENTATION
+#define NK_XLIB_IMPLEMENTATION
+#include "../nuklear.h"
+#include "nuklear_xlib.h"
+
 #include "../app.c"
 
-/* #define NK_INCLUDE_FIXED_TYPES */
-/* #define NK_INCLUDE_STANDARD_IO */
-/* #define NK_INCLUDE_STANDARD_VARARGS */
-/* #define NK_INCLUDE_DEFAULT_ALLOCATOR */
-/* #define NK_IMPLEMENTATION */
-/* #define NK_XLIB_IMPLEMENTATION */
-/* #include "../nuklear.h" */
-/* #include "nuklear_xlib.h" */
-
-#include <stdlib.h>
-
 #include <asoundlib.h>
-
+#include <stdlib.h>
 #include <sys/mman.h>
+#include <X11/Xatom.h>
+#include <X11/Xlib.h>
+#include <X11/extensions/Xrandr.h>
+
+#define WINDOW_WIDTH    800
+#define WINDOW_HEIGHT   600
 
 typedef enum
 {
@@ -37,6 +45,8 @@ static void         linux_destroy_work_queue    (WorkQueue *);
 static void         linux_enqueue_work          (WorkQueue *, WorkQueueCallback,
                                                  void *);
 static void         linux_complete_all_work     (WorkQueue *);
+static u64          linux_get_ticks             (void);
+static float        query_xrandr_fps            (Display *, Window);
 
 static PlatformApi linux_platform = {
   .allocate_memory      = linux_allocate_memory,
@@ -46,6 +56,22 @@ static PlatformApi linux_platform = {
   .enqueue_work         = linux_enqueue_work,
   .complete_all_work    = linux_complete_all_work
 };
+
+typedef struct
+{
+  Display              *dpy;
+  Window                root;
+  Visual               *vis;
+  Colormap              cmap;
+  XWindowAttributes     attr;
+  XSetWindowAttributes  swa;
+  Window                win;
+  int                   screen;
+  XFont                *font;
+  unsigned int          width;
+  unsigned int          height;
+  Atom                  wm_delete_window;
+} XWindow;
 
 PlatformApi *g_platform = &linux_platform;
 
@@ -60,7 +86,138 @@ main (int argc, char **argv)
   linux_memory_sentinel.prev = &linux_memory_sentinel;
   linux_memory_sentinel.next = &linux_memory_sentinel;
 
+  XWindow xw = {};
+
+  xw.dpy = XOpenDisplay (":0.0");
+  if (!xw.dpy)
+    {
+      fprintf (stderr, "Cannot open display\n");
+      return EXIT_FAILURE;
+    }
+  xw.screen     = DefaultScreen (xw.dpy);
+  xw.root       = RootWindow (xw.dpy, xw.screen);
+  xw.vis        = DefaultVisual (xw.dpy, xw.screen);
+  xw.cmap       = XCreateColormap (xw.dpy, xw.root, xw.vis, AllocNone);
+
+  xw.swa.colormap = xw.cmap;
+  xw.swa.event_mask = (ExposureMask
+                       | KeyPressMask
+                       | KeyReleaseMask
+                       | ButtonPress
+                       | ButtonReleaseMask
+                       | ButtonMotionMask
+                       | Button1MotionMask
+                       | Button3MotionMask
+                       | Button4MotionMask
+                       | Button5MotionMask
+                       | PointerMotionMask
+                       | KeymapStateMask);
+  xw.win = XCreateWindow (xw.dpy, xw.root, 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, 0,
+                          XDefaultDepth (xw.dpy, xw.screen), InputOutput,
+                          xw.vis, CWEventMask | CWColormap, &xw.swa);
+
+  XStoreName (xw.dpy, xw.win, "FonoGraf");
+  XMapWindow (xw.dpy, xw.win);
+  xw.wm_delete_window = XInternAtom (xw.dpy, "WM_DELETE_WINDOW", False);
+  XSetWMProtocols (xw.dpy, xw.win, &xw.wm_delete_window, 1);
+  XGetWindowAttributes (xw.dpy, xw.win, &xw.attr);
+  xw.width = (unsigned int) xw.attr.width;
+  xw.height = (unsigned int) xw.attr.height;
+  xw.font = nk_xfont_create (xw.dpy, "fixed");
+
+  struct nk_context *ctx;
+  ctx = nk_xlib_init (xw.font, xw.dpy, xw.screen, xw.win, xw.width, xw.height);
+
+  float fps = 10.f;
+  int   rr_event_base;
+  int   rr_error_base;
+  bool  have_rr = XRRQueryExtension (xw.dpy, &rr_event_base, &rr_error_base);
+  if (have_rr)
+    {
+      XRRSelectInput (xw.dpy, xw.win, RRScreenChangeNotifyMask);
+      fps = query_xrandr_fps (xw.dpy, xw.win);
+    }
+  float render_dt = 1.f / fps;
+  u64 ticks_per_frame = (u64) ((float) TICKS_PER_SECOND * render_dt);
+
+  bool quit = false;
+  while (!quit)
+    {
+      u64 start_tick = linux_get_ticks ();
+      u64 ticks_elapsed = 0;
+
+      nk_input_begin (ctx);
+      while (XPending (xw.dpy))
+        {
+          XEvent e;
+          XNextEvent (xw.dpy, &e);
+          switch (e.type)
+            {
+            case DestroyNotify:
+              quit = true;
+              break;
+            case ClientMessage:
+              if ((Atom) e.xclient.data.l[0] == xw.wm_delete_window)
+                quit = true;
+              break;
+            default:
+              if (have_rr)
+                {
+                  switch (e.type - rr_event_base)
+                    {
+                    case RRScreenChangeNotify:
+                      fps = query_xrandr_fps (xw.dpy, xw.win);
+                      render_dt = 1.f / fps;
+                      ticks_per_frame = (u64) ((float) TICKS_PER_SECOND * render_dt);
+                      break;
+                    }
+                }
+              break;
+            }
+          if (!XFilterEvent (&e, xw.win))
+            nk_xlib_handle_event (xw.dpy, xw.screen, xw.win, &e);
+        }
+      nk_input_end (ctx);
+
+      update_ui (ctx, render_dt);
+
+      XClearWindow (xw.dpy, xw.win);
+      nk_xlib_render (xw.win, nk_rgb (30, 30, 30));
+      XFlush (xw.dpy);
+
+      ticks_elapsed = linux_get_ticks () - start_tick;
+      if (ticks_elapsed < ticks_per_frame)
+        {
+          // Sleep until fps target minus 1ms
+          u64 wait_ticks = ticks_per_frame - ticks_elapsed;
+          if (wait_ticks > 1000000)
+            {
+              struct timespec delay = {};
+              wait_ticks -= 1000000;
+              delay.tv_nsec = wait_ticks;
+              nanosleep (&delay, NULL);
+            }
+          // Spin for remaining 1ms +/- nanosleep overhead
+          while (ticks_elapsed < ticks_per_frame)
+            ticks_elapsed = linux_get_ticks () - start_tick;
+        }
+      else
+        fprintf (stderr, "Missed frame rate\n");
+    }
+
   app_run ();
+
+  nk_xfont_del (xw.dpy, xw.font);
+  nk_xlib_shutdown ();
+  XUnmapWindow (xw.dpy, xw.win);
+  XFreeColormap (xw.dpy, xw.cmap);
+  XDestroyWindow (xw.dpy, xw.win);
+  XCloseDisplay (xw.dpy);
+
+  NK_UNUSED (nk_sin); // #define NK_INCLUDE_VERTEX_BUFFER_OUTPUT
+  NK_UNUSED (nk_cos);
+  NK_UNUSED (nk_sqrt); // #define NK_INCLUDE_FONT_BAKING
+  NK_UNUSED (nk_file_load);
 
 #if 0
   static char *device = "default";            /* playback device */
@@ -144,6 +301,31 @@ main (int argc, char **argv)
 #endif
 
   return EXIT_SUCCESS;
+}
+
+static u64
+linux_get_ticks ()
+{
+  u64 ticks;
+  struct timespec now;
+  clock_gettime (CLOCK_MONOTONIC, &now);
+  ticks = now.tv_sec;
+  ticks *= TICKS_PER_SECOND;
+  ticks += now.tv_nsec;
+  return ticks;
+}
+
+static float
+query_xrandr_fps (Display *dpy, Window win)
+{
+  float fps = 60.f;
+  XRRScreenConfiguration *screen_config = XRRGetScreenInfo (dpy, win);
+  if (screen_config)
+    {
+      fps = (float) XRRConfigCurrentRate (screen_config);
+      XRRFreeScreenConfigInfo (screen_config);
+    }
+  return fps;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
