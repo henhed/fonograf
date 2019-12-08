@@ -124,6 +124,6 @@ init_push_bytes (size_t nbytes, size_t alignment, size_t pool_offset, flags_t fl
 #define push_array_aligned(pool, T, nmemb, alignment, flags) \
   push_bytes_aligned ((pool), sizeof (T) * (nmemb), (alignment), (flags))
 #define push_array(pool, T, nmemb, flags) \
-  push_array_aligned ((pool), sizeof (T), (nmemb), alignof (T), (flags))
+  push_array_aligned ((pool), T, (nmemb), alignof (T), (flags))
 
 #endif /* ! MEMORY_H */

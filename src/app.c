@@ -1,188 +1,176 @@
 #include "memory.h"
 #include "maths.h"
+#include "network.h"
 
 #include <stdio.h>
 
-typedef struct
+static Network *app_network;
+static WorkQueue *app_work_queue;
+
+static u32
+fread_u32 (FILE *f)
 {
-  float    *base;
-  u32       width;
-  u32       height;
-} Tensor;
+  u32 result;
+  size_t nread;
+  nread = fread (&result, sizeof (result), 1, f);
+  if (nread != 1)
+    return (u32) -1;
+  result = (((result & 0x000000FF) << 24) |
+            ((result & 0x0000FF00) <<  8) |
+            ((result & 0x00FF0000) >>  8) |
+            ((result & 0xFF000000) >> 24));
+  return result;
+}
 
-Tensor *
-create_tensor (MemoryPool *mpool, u32 width, u32 height)
+void
+do_training_work (void *user_data)
 {
-  Tensor *tensor;
+  (void) user_data;
 
-  assert (width > 0);
-  assert (height > 0);
+  FILE *images_fh = fopen ("data/train-images-idx3-ubyte", "r");
+  FILE *labels_fh = fopen ("data/train-labels-idx1-ubyte", "r");
+  assert (images_fh);
+  assert (labels_fh);
 
-  u32 nmemb = ALIGN_POW2 (width * height, 4); // for `_mm_load_ps'
+  u32 magic;
+  magic = fread_u32 (images_fh);
+  assert (magic == 2051);
+  magic = fread_u32 (labels_fh);
+  assert (magic == 2049);
 
-  tensor = push_struct (mpool, Tensor, MEMORY_FLAG_NONE);
-  tensor->base = push_array_aligned (mpool, float, nmemb,
-                                     16, // for `_mm_load_ps'
+  u32 num_images = fread_u32 (images_fh);
+  u32 num_rows = fread_u32 (images_fh);
+  u32 num_cols = fread_u32 (images_fh);
+  u32 num_labels = fread_u32 (labels_fh);
+  printf ("num_images: %u\n", num_images);
+  printf ("num_rows: %u\n", num_rows);
+  printf ("num_cols: %u\n", num_cols);
+  printf ("num_labels: %u\n", num_labels);
+
+  assert (num_labels == num_images);
+
+  srand (time (NULL));
+
+  u32 images_buffer_size = ((num_rows * num_cols) + 10) * num_images; // +10 for labels
+  float *images_buffer = push_array (&app_network->mpool, float, images_buffer_size,
                                      MEMORY_FLAG_NONE);
-  tensor->width = width;
-  tensor->height = height;
-
-  return tensor;
-}
-
-static inline void
-randomize_tensor (Tensor *tensor)
-{
-  u32 nmemb = tensor->width * tensor->height;
-  for (u32 i = 0; i < nmemb; ++i)
-    tensor->base[i] = generate_gaussian_noise (0, 1);
-}
-
-void
-print_tensor (Tensor *t)
-{
-  u32 w = t->width;
-  u32 h = t->height;
-  for (u32 y = 0; y < h; ++y)
+  for (u32 i = 0, j = 0; i < num_images; ++i)
     {
-      u32 offset = y * w;
-      for (u32 x = 0; x < w; ++x)
+      size_t nread;
+      u8 buffer[num_cols * num_rows];
+      nread = fread (buffer, sizeof (buffer[0]), num_cols * num_rows, images_fh);
+      if (nread != sizeof (buffer[0]) * num_cols * num_rows)
         {
-          /* static char *c[] = {" ", "\u2591", "\u2592", "\u2593", "\u2588"}; */
-          float v = t->base[offset + x];
-          /* v = MAX (MIN (v, .99f), 0.f); */
-          /* printf ("%1$s%1$s", c[(int) (v * ARRAY_COUNT (c))]); */
-          printf ("%6.2f, ", v);
+          fprintf (stderr, "nread = %lu (of %u)\n", nread, num_cols * num_rows);
+          fclose (images_fh);
+          fclose (labels_fh);
+          exit (EXIT_FAILURE);
         }
-      printf ("\n");
-    }
-}
+      for (u32 k = 0; k < sizeof (buffer) / sizeof (buffer[0]); ++k, ++j)
+        images_buffer[j] = ((float) buffer[k]) / 255.f;
 
-void
-tensor_sum_product (const Tensor *a, const Tensor *b, Tensor *out)
-{
-  u32 aw = a->width;
-  u32 ah = a->height;
-  u32 bw = b->width;
-  u32 bh = b->height;
-  u32 ow = out->width;
-  u32 oh = out->height;
-
-  assert (ow == bw);
-  assert (oh == ah);
-  assert (aw == bh);
-
-  /* if ((aw == 1) && (bh == 1)) */
-  /*   { */
-  /*     for (u32 y = 0; y < ah; ++y) */
-  /*       { */
-  /*         __m128 a4 = _mm_set1_ps (a->base[y]); */
-  /*         for (u32 x = 0, offset = y * bw; x < bw; x += 4) */
-  /*           { */
-  /*             __m128 b4 = _mm_load_ps (b->base + x); */
-  /*             __m128 v4 = _mm_mul_ps (a4, b4); */
-  /*             _mm_storeu_ps (out->base + offset + x, v4); */
-  /*           } */
-  /*       } */
-  /*     return; */
-  /*   } */
-
-  for (u32 y = 0; y < oh; ++y)
-    {
-      for (u32 x = 0, oy = y * ow; x < ow; ++x)
+      u8 label = (u8) -1;
+      (void) fread (&label, sizeof (label), 1, labels_fh);
+      if (label >= 10)
         {
-          u32 ox = oy + x;
-          out->base[ox] = 0;
-          for (u32 i = 0; i < aw; ++i)
-            out->base[ox] += a->base[(y * aw) + i] * b->base[(i * bw) + x];
+          fprintf (stderr, "label = %u\n", label);
+          fclose (images_fh);
+          fclose (labels_fh);
+          exit (EXIT_FAILURE);
         }
-    }
-}
 
-void
-do_some_work (void *user_data)
-{
-  int data = *(int *) user_data;
-  printf ("%s: %d\n", __FUNCTION__, data);
-}
-
-void
-app_run ()
-{
-  MemoryPool mpool = {};
-
-  WorkQueue *queue = create_work_queue (100, 10);
-  printf ("queue: %p\n", queue);
-
-  int data[20];
-  for (u32 i = 0; i < ARRAY_COUNT (data); ++i)
-    {
-      data[i] = i;
-      enqueue_work (queue, do_some_work, data + i);
+      for (u8 k = 0; k < 10; ++k, ++j)
+        images_buffer[j] = (k == label) ? 1.f : 0.f;
     }
 
-  complete_all_work (queue);
+  network_sgd (app_network, images_buffer, num_images, 30, 0.025f, 5.f);
 
-  {
-    Tensor *t1 = create_tensor (&mpool, 1, 5);
-    t1->base = (float []) {1, 2, 3, 4, 5};
-    Tensor *t2 = create_tensor (&mpool, 6, 1);
-    t2->base = (float []) {1, 2, 3, 4, 5, 6};
-
-    Tensor *t3 = create_tensor (&mpool, 6, 5);
-    tensor_sum_product (t1, t2, t3);
-
-    /* randomize_tensor (t1); */
-    print_tensor (t1); printf ("\n");
-    print_tensor (t2); printf ("\n");
-    print_tensor (t3); printf ("\n");
-  }
-
-  printf ("========================================\n");
-
-  {
-    Tensor *t1 = create_tensor (&mpool, 3, 3);
-    t1->base = (float []) {1, 1, 1, 2, 2, 2, 3, 3, 3};
-    Tensor *t2 = create_tensor (&mpool, 2, 3);
-    t2->base = (float []) {1, 2, 2, 3, 3, 4};
-
-    Tensor *t3 = create_tensor (&mpool, 2, 3);
-    tensor_sum_product (t1, t2, t3);
-
-    print_tensor (t1); printf ("\n");
-    print_tensor (t2); printf ("\n");
-    print_tensor (t3); printf ("\n");
-  }
-
-  destroy_work_queue (queue);
-
-  clear_memory_pool (&mpool);
+  fclose (images_fh);
+  fclose (labels_fh);
 }
 
 void
-update_ui (struct nk_context *ctx, float dt)
+app_init ()
+{
+  u32 sizes[] = {784, 30, 10};
+  app_network = create_network (sizes, ARRAY_COUNT (sizes), 10);
+  app_work_queue = create_work_queue (2, 1);
+
+  enqueue_work (app_work_queue, do_training_work, NULL);
+}
+
+void
+app_shutdown ()
+{
+  destroy_work_queue (app_work_queue);
+  destroy_network (app_network);
+}
+
+void
+app_update_ui (struct nk_context *ctx, float dt)
 {
   (void) dt;
-  if (nk_begin (ctx, "Demo", nk_rect (50, 50, 200, 200),
-                (NK_WINDOW_BORDER
-                 | NK_WINDOW_MOVABLE
-                 | NK_WINDOW_SCALABLE
-                 | NK_WINDOW_CLOSABLE
-                 | NK_WINDOW_MINIMIZABLE
-                 | NK_WINDOW_TITLE)))
-    {
-      enum {EASY, HARD};
-      static int op = EASY;
-      static int property = 20;
 
-      nk_layout_row_static(ctx, 30, 80, 1);
-      if (nk_button_label(ctx, "button"))
-        fprintf(stdout, "button pressed\n");
-      nk_layout_row_dynamic(ctx, 30, 2);
-      if (nk_option_label(ctx, "easy", op == EASY)) op = EASY;
-      if (nk_option_label(ctx, "hard", op == HARD)) op = HARD;
-      nk_layout_row_dynamic(ctx, 25, 1);
-      nk_property_int(ctx, "Compression:", 0, &property, 100, 10, 1);
+  if (nk_begin (ctx, "Demo",
+                nk_rect (0, 0, g_platform->window.width, g_platform->window.height),
+                0))
+    {
+      struct nk_command_buffer *canvas = nk_window_get_canvas (ctx);
+      struct nk_rect size = nk_layout_space_bounds (ctx);
+      float ui_y = size.y + 20;
+      float cell_width  = 1.f;
+      float cell_height = 1.f;
+
+      for (u32 i = 0; i < app_network->layers.nmemb; ++i)
+        {
+          NetworkLayer *layer = &app_network->layers.base[i];
+          u32 width = layer->width;
+          u32 height = layer->height;
+          for (u32 y = 0; y < height; ++y)
+            {
+              for (u32 x = 0, offset = y * width; x < width; ++x)
+                {
+                  float value  = layer->weights[offset + x];
+                  float red    = (value < 0) ? MIN (-value, 4.f) : 0;
+                  float green  = (value > 0) ? MIN ( value, 4.f) : 0;
+                  float blue   = 4.f - (red + green);
+                  nk_fill_rect (canvas,
+                                nk_rect (size.x + (x * cell_width),
+                                         ui_y + (y * cell_height),
+                                         cell_width,
+                                         cell_height),
+                                0.f,
+                                nk_rgb ((int) (red   * 64),
+                                        (int) (green * 64),
+                                        (int) (blue  * 64)));
+                }
+            }
+          ui_y += (height * cell_height) + 20;
+
+          cell_width  *= 3;
+          cell_height *= 3;
+
+          for (u32 y = 0; y < height; ++y)
+            {
+              float value  = layer->biases[y];
+              float red    = (value < 0) ? MIN (-value, 4.f) : 0;
+              float green  = (value > 0) ? MIN ( value, 4.f) : 0;
+              float blue   = 4.f - (red + green);
+              nk_fill_rect (canvas,
+                            nk_rect (size.x,
+                                     ui_y + (y * cell_height),
+                                     cell_width,
+                                     cell_height),
+                            0.f,
+                            nk_rgb ((int) (red   * 64),
+                                    (int) (green * 64),
+                                    (int) (blue  * 64)));
+            }
+          ui_y += (height * cell_height) + 20;
+
+          cell_width  *= 3;
+          cell_height *= 3;
+        }
     }
-  nk_end(ctx);
+  nk_end (ctx);
 }

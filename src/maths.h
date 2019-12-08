@@ -6,17 +6,19 @@
 
 #include <immintrin.h>
 
-#define TWO_PI 6.28318530718f
+#define M_PI 3.14159265358979323846
+#define M_TAU 6.28318530718
+#define M_E 2.7182818284590452354
 
 #define sqrtf(x)    _mm_cvtss_f32 (_mm_sqrt_ss (_mm_set_ss (x)))
 #define sinf(x)     __builtin_sinf (x)
 #define cosf(x)     __builtin_cosf (x)
 #define logf(x)     __builtin_logf (x)
+#define powf(x, y)  __builtin_powf (x, y)
 
 float
 generate_gaussian_noise (float median, float variance)
 {
-
   static float z1;
   static bool generate;
   generate = !generate;
@@ -33,8 +35,8 @@ generate_gaussian_noise (float median, float variance)
   while (u1 <= FLT_MIN);
 
   float z0;
-  z0 = sqrtf (-2.f * logf (u1)) * cosf (TWO_PI * u2);
-  z1 = sqrtf (-2.f * logf (u1)) * sinf (TWO_PI * u2);
+  z0 = sqrtf (-2.f * logf (u1)) * cosf (M_TAU * u2);
+  z1 = sqrtf (-2.f * logf (u1)) * sinf (M_TAU * u2);
 
   return (z0 * variance) + median;
 }

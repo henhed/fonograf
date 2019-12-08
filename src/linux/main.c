@@ -22,9 +22,6 @@
 #include <X11/Xlib.h>
 #include <X11/extensions/Xrandr.h>
 
-#define WINDOW_WIDTH    800
-#define WINDOW_HEIGHT   600
-
 typedef enum
 {
   LINUX_MEMORY_FLAG_NONE = 0x0,
@@ -54,7 +51,11 @@ static PlatformApi linux_platform = {
   .create_work_queue    = linux_create_work_queue,
   .destroy_work_queue   = linux_destroy_work_queue,
   .enqueue_work         = linux_enqueue_work,
-  .complete_all_work    = linux_complete_all_work
+  .complete_all_work    = linux_complete_all_work,
+  .window = {
+    .width = 800,
+    .height = 600
+  }
 };
 
 typedef struct
@@ -111,9 +112,11 @@ main (int argc, char **argv)
                        | Button4MotionMask
                        | Button5MotionMask
                        | PointerMotionMask
-                       | KeymapStateMask);
-  xw.win = XCreateWindow (xw.dpy, xw.root, 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, 0,
-                          XDefaultDepth (xw.dpy, xw.screen), InputOutput,
+                       | KeymapStateMask
+                       | StructureNotifyMask);
+  xw.win = XCreateWindow (xw.dpy, xw.root, 0, 0,
+                          g_platform->window.width, g_platform->window.height,
+                          0, XDefaultDepth (xw.dpy, xw.screen), InputOutput,
                           xw.vis, CWEventMask | CWColormap, &xw.swa);
 
   XStoreName (xw.dpy, xw.win, "FonoGraf");
@@ -140,6 +143,8 @@ main (int argc, char **argv)
   float render_dt = 1.f / fps;
   u64 ticks_per_frame = (u64) ((float) TICKS_PER_SECOND * render_dt);
 
+  app_init ();
+
   bool quit = false;
   while (!quit)
     {
@@ -160,6 +165,13 @@ main (int argc, char **argv)
               if ((Atom) e.xclient.data.l[0] == xw.wm_delete_window)
                 quit = true;
               break;
+            case ConfigureNotify:
+              {
+                XConfigureEvent xce = e.xconfigure;
+                g_platform->window.width = (u32) xce.width;
+                g_platform->window.height = (u32) xce.height;
+              }
+              break;
             default:
               if (have_rr)
                 {
@@ -179,7 +191,7 @@ main (int argc, char **argv)
         }
       nk_input_end (ctx);
 
-      update_ui (ctx, render_dt);
+      app_update_ui (ctx, render_dt);
 
       XClearWindow (xw.dpy, xw.win);
       nk_xlib_render (xw.win, nk_rgb (30, 30, 30));
@@ -201,11 +213,11 @@ main (int argc, char **argv)
           while (ticks_elapsed < ticks_per_frame)
             ticks_elapsed = linux_get_ticks () - start_tick;
         }
-      else
-        fprintf (stderr, "Missed frame rate\n");
+      /* else */
+      /*   fprintf (stderr, "Missed frame rate\n"); */
     }
 
-  app_run ();
+  app_shutdown ();
 
   nk_xfont_del (xw.dpy, xw.font);
   nk_xlib_shutdown ();
@@ -318,6 +330,7 @@ linux_get_ticks ()
 static float
 query_xrandr_fps (Display *dpy, Window win)
 {
+  return 10.f; // @Hardcode
   float fps = 60.f;
   XRRScreenConfiguration *screen_config = XRRGetScreenInfo (dpy, win);
   if (screen_config)

@@ -36,6 +36,11 @@ typedef struct
   void          (*destroy_work_queue)   (WorkQueue *);
   void          (*enqueue_work)         (WorkQueue *, WorkQueueCallback, void *);
   void          (*complete_all_work)    (WorkQueue *);
+  struct
+  {
+    u32 width;
+    u32 height;
+  } window;
 } PlatformApi;
 
 extern PlatformApi *g_platform;
