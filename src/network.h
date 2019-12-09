@@ -4,101 +4,46 @@
 #include "memory.h"
 #include "maths.h"
 
-typedef struct
-{
-  float    *base;
-  u32       width;
-  u32       height;
-} Tensor;
+/* void */
+/* tensor_sum_product (const Tensor *a, const Tensor *b, Tensor *out) */
+/* { */
+/*   u32 aw = a->width; */
+/*   u32 ah = a->height; */
+/*   u32 bw = b->width; */
+/*   u32 bh = b->height; */
+/*   u32 ow = out->width; */
+/*   u32 oh = out->height; */
 
-Tensor *
-create_tensor (MemoryPool *mpool, u32 width, u32 height)
-{
-  Tensor *tensor;
+/*   assert (ow == bw); */
+/*   assert (oh == ah); */
+/*   assert (aw == bh); */
 
-  assert (width > 0);
-  assert (height > 0);
+/*   /\* if ((aw == 1) && (bh == 1)) *\/ */
+/*   /\*   { *\/ */
+/*   /\*     for (u32 y = 0; y < ah; ++y) *\/ */
+/*   /\*       { *\/ */
+/*   /\*         __m128 a4 = _mm_set1_ps (a->base[y]); *\/ */
+/*   /\*         for (u32 x = 0, offset = y * bw; x < bw; x += 4) *\/ */
+/*   /\*           { *\/ */
+/*   /\*             __m128 b4 = _mm_load_ps (b->base + x); *\/ */
+/*   /\*             __m128 v4 = _mm_mul_ps (a4, b4); *\/ */
+/*   /\*             _mm_storeu_ps (out->base + offset + x, v4); *\/ */
+/*   /\*           } *\/ */
+/*   /\*       } *\/ */
+/*   /\*     return; *\/ */
+/*   /\*   } *\/ */
 
-  u32 nmemb = ALIGN_POW2 (width * height, 4); // for `_mm_load_ps'
-
-  tensor = push_struct (mpool, Tensor, MEMORY_FLAG_NONE);
-  tensor->base = push_array_aligned (mpool, float, nmemb,
-                                     16, // for `_mm_load_ps'
-                                     MEMORY_FLAG_NONE);
-  tensor->width = width;
-  tensor->height = height;
-
-  return tensor;
-}
-
-static inline void
-randomize_tensor (Tensor *tensor)
-{
-  u32 nmemb = tensor->width * tensor->height;
-  for (u32 i = 0; i < nmemb; ++i)
-    tensor->base[i] = generate_gaussian_noise (0, 1);
-}
-
-void
-print_tensor (Tensor *t)
-{
-  u32 w = t->width;
-  u32 h = t->height;
-  for (u32 y = 0; y < h; ++y)
-    {
-      u32 offset = y * w;
-      for (u32 x = 0; x < w; ++x)
-        {
-          /* static char *c[] = {" ", "\u2591", "\u2592", "\u2593", "\u2588"}; */
-          float v = t->base[offset + x];
-          /* v = MAX (MIN (v, .99f), 0.f); */
-          /* printf ("%1$s%1$s", c[(int) (v * ARRAY_COUNT (c))]); */
-          printf ("%6.2f, ", v);
-        }
-      printf ("\n");
-    }
-}
-
-void
-tensor_sum_product (const Tensor *a, const Tensor *b, Tensor *out)
-{
-  u32 aw = a->width;
-  u32 ah = a->height;
-  u32 bw = b->width;
-  u32 bh = b->height;
-  u32 ow = out->width;
-  u32 oh = out->height;
-
-  assert (ow == bw);
-  assert (oh == ah);
-  assert (aw == bh);
-
-  /* if ((aw == 1) && (bh == 1)) */
-  /*   { */
-  /*     for (u32 y = 0; y < ah; ++y) */
-  /*       { */
-  /*         __m128 a4 = _mm_set1_ps (a->base[y]); */
-  /*         for (u32 x = 0, offset = y * bw; x < bw; x += 4) */
-  /*           { */
-  /*             __m128 b4 = _mm_load_ps (b->base + x); */
-  /*             __m128 v4 = _mm_mul_ps (a4, b4); */
-  /*             _mm_storeu_ps (out->base + offset + x, v4); */
-  /*           } */
-  /*       } */
-  /*     return; */
-  /*   } */
-
-  for (u32 y = 0; y < oh; ++y)
-    {
-      for (u32 x = 0, oy = y * ow; x < ow; ++x)
-        {
-          u32 ox = oy + x;
-          out->base[ox] = 0;
-          for (u32 i = 0; i < aw; ++i)
-            out->base[ox] += a->base[(y * aw) + i] * b->base[(i * bw) + x];
-        }
-    }
-}
+/*   for (u32 y = 0; y < oh; ++y) */
+/*     { */
+/*       for (u32 x = 0, oy = y * ow; x < ow; ++x) */
+/*         { */
+/*           u32 ox = oy + x; */
+/*           out->base[ox] = 0; */
+/*           for (u32 i = 0; i < aw; ++i) */
+/*             out->base[ox] += a->base[(y * aw) + i] * b->base[(i * bw) + x]; */
+/*         } */
+/*     } */
+/* } */
 
 typedef struct _Network Network;
 
@@ -167,8 +112,6 @@ struct _Network
   } mini_batch_results;
   ForwardResult    *validation_forward_result;
   BackwardResult   *mini_batch_backward_result;
-  Tensor          **biases;
-  Tensor          **weights;
   WorkQueue        *work_queue;
 };
 
@@ -227,11 +170,6 @@ create_network (u32 *sizes, u32 nlayers, u32 mini_batch_size)
 
   network = init_push_struct (Network, mpool, MEMORY_FLAG_ZERO);
 
-  network->biases = push_array (&network->mpool, Tensor *, nlayers - 1,
-                                MEMORY_FLAG_NONE);
-  network->weights = push_array (&network->mpool, Tensor *, nlayers - 1,
-                                 MEMORY_FLAG_NONE);
-
   network->layers.nmemb = nlayers - 1;
   network->layers.base = push_array (&network->mpool, NetworkLayer, nlayers - 1,
                                      MEMORY_FLAG_NONE);
@@ -270,7 +208,7 @@ create_network (u32 *sizes, u32 nlayers, u32 mini_batch_size)
 
   network->mini_batch_backward_result = create_backward_result (network);
 
-  network->work_queue = create_work_queue (mini_batch_size + 1, 3); // @Hardcode
+  network->work_queue = create_work_queue (mini_batch_size * 2, 3); // @Hardcode
 
   return network;
 }
@@ -302,68 +240,61 @@ sigmoid_prime_ (float z)
   return sigmoid_ (z) * (1.f - sigmoid_ (z));
 }
 
-void
+static inline void
 sigmoid (const float *input, float *output, u32 nmemb)
 {
   for (u32 i = 0; i < nmemb; ++i)
     output[i] = sigmoid_ (input[i]);
 }
 
-static void
-dot1 (const float *weights,
-      const float *biases,
-      const float *activation,
-      u32 width,
-      u32 height,
-      float *out)
+static inline void
+sigmoid_prime (const float *input, const float *z, u32 nmemb, float *out)
 {
-  for (u32 y = 0; y < height; ++y)
+  for (u32 i = 0; i < nmemb; ++i)
+    out[i] = input[i] * sigmoid_prime_ (z[i]);
+}
+
+static inline void
+vec_sum (const float *a, const float *b, u32 nmemb, float *out)
+{
+  for (u32 i = 0; i < nmemb; ++i)
+    out[i] = a[i] + b[i];
+}
+
+static inline void
+mat_nm_vec_m_product (const float *a, const float *b, u32 n, u32 m, float *out)
+{
+  for (u32 y = 0; y < m; ++y)
     {
-      float value = biases[y];
-      u32 offset = y * width;
-      for (u32 x = 0; x < width; ++x)
-        value += weights[offset + x] * activation[x];
-      out[y] = value;
+      out[y] = 0;
+      for (u32 x = 0, offset = y * n; x < n; ++x)
+        out[y] += a[offset + x] * b[x];
     }
 }
 
-static void
-dot2 (const float *delta,
-      const float *activations,
-      u32 height,
-      u32 width,
-      float *output)
+static inline void
+mat_nm_vec_m_transpose_product (const float *a, const float *b, u32 n, u32 m,
+                                float *out)
 {
-  for (u32 y = 0; y < height; ++y)
+  for (u32 x = 0; x < n; ++x)
     {
-      u32 offset = y * width;
-      for (u32 x = 0; x < width; ++x)
-        {
-          output[offset + x] = activations[x] * delta[y];
-        }
+      out[x] = 0;
+      for (u32 y = 0; y < m; ++y)
+        out[x] += a[(y * n) + x] * b[y];
     }
 }
 
-static void
-dot3 (const float *weights,
-      const float *delta,
-      const float *zs,
-      u32 width,
-      u32 height,
-      float *output)
+static inline void
+mat_1n_mat_m1_product (const float *a, const float *b, u32 n, u32 m, float *out)
 {
-  for (u32 x = 0; x < width; ++x)
+  for (u32 y = 0; y < n; ++y)
     {
-      float value = 0;
-      for (u32 y = 0; y < height; ++y)
-        {
-          value += weights[(y * width) + x] * delta[y];
-        }
-      output[x] = value * sigmoid_prime_ (zs[x]);
+      for (u32 x = 0, offset = y * m; x < m; ++x)
+        out[offset + x] = b[x] * a[y];
     }
 }
 
-float
+static inline float
 cost (const float *a, const float *y, u32 nmemb)
 {
   float norm = 0.f;
@@ -376,7 +307,7 @@ cost (const float *a, const float *y, u32 nmemb)
   return .5f * (norm * norm);
 }
 
-static void
+static inline void
 cost_derivative (const float *activations, const float *truth, const float *zs,
                  u32 nmemb, float *output)
 {
@@ -387,7 +318,7 @@ cost_derivative (const float *activations, const float *truth, const float *zs,
     }
 }
 
-static void
+static inline void
 feedforward (Network *network, float *input, ForwardResult *result)
 {
   assert (result->layers.nmemb == network->layers.nmemb);
@@ -399,14 +330,15 @@ feedforward (Network *network, float *input, ForwardResult *result)
       float *w = nl->weights;
       ForwardResultLayer *rl = &result->layers.base[i];
       assert (rl->height == nl->height);
-      dot1 (w, b, activation, nl->width, nl->height, rl->zs);
+      mat_nm_vec_m_product (w, activation, nl->width, nl->height, rl->zs);
+      vec_sum (rl->zs, b, nl->height, rl->zs);
       sigmoid (rl->zs, rl->activation, rl->height);
       activation = rl->activation;
     }
 }
 
-static bool
-evaluate (Network *network, float *x, float *y)
+static inline bool
+evaluate_network (Network *network, float *x, float *y)
 {
   ForwardResult *fr = network->validation_forward_result;
   assert (fr->layers.nmemb == network->layers.nmemb);
@@ -436,7 +368,7 @@ evaluate (Network *network, float *x, float *y)
   return success;
 }
 
-void
+static inline void
 backprop (Network *network, float *x, float *y,
           ForwardResult *fr, BackwardResult *br)
 {
@@ -458,30 +390,33 @@ backprop (Network *network, float *x, float *y,
                    fr->layers.base[nlayers - 1].zs,
                    br->layers.base[nlayers - 1].height,
                    delta);
-  dot2 (delta,
-        activations[nlayers - 1],
-        br->layers.base[nlayers - 1].height,
-        br->layers.base[nlayers - 1].width,
-        br->layers.base[nlayers - 1].delta_w);
+  mat_1n_mat_m1_product (delta,
+                         activations[nlayers - 1],
+                         br->layers.base[nlayers - 1].height,
+                         br->layers.base[nlayers - 1].width,
+                         br->layers.base[nlayers - 1].delta_w);
 
   for (u32 i = nlayers - 2; i != (u32) -1; --i)
     {
-      dot3 (network->layers.base[i + 1].weights,
-            delta,
-            fr->layers.base[i].zs,
-            network->layers.base[i + 1].width,
-            network->layers.base[i + 1].height,
-            br->layers.base[i].delta_b);
+      mat_nm_vec_m_transpose_product (network->layers.base[i + 1].weights,
+                                      delta,
+                                      network->layers.base[i + 1].width,
+                                      network->layers.base[i + 1].height,
+                                      br->layers.base[i].delta_b);
+      sigmoid_prime (br->layers.base[i].delta_b,
+                     fr->layers.base[i].zs,
+                     network->layers.base[i + 1].width,
+                     br->layers.base[i].delta_b);
       delta = br->layers.base[i].delta_b;
-      dot2 (delta,
-            activations[i],
-            br->layers.base[i].height,
-            br->layers.base[i].width,
-            br->layers.base[i].delta_w);
+      mat_1n_mat_m1_product (delta,
+                             activations[i],
+                             br->layers.base[i].height,
+                             br->layers.base[i].width,
+                             br->layers.base[i].delta_w);
     }
 }
 
-void
+static inline void
 do_backprop_work (void *user_data)
 {
   MiniBatchResult *result = (MiniBatchResult *) user_data;
@@ -517,6 +452,7 @@ update_mini_batch (Network *network, float *mini_batch, u32 mini_batch_size,
       result->input = mini_batch + input_offset;
       result->output = mini_batch + output_offset;
 
+      /* do_backprop_work (result); */
       enqueue_work (network->work_queue, do_backprop_work, result);
     }
   complete_all_work (network->work_queue);
@@ -579,6 +515,7 @@ network_sgd (Network *network, float *training_data, u32 training_data_count,
       qsort (training_data, training_data_count,
              sizeof (training_data[0]) * sample_size, rand_cmp);
 
+      u64 start_tick = get_ticks ();
       u32 mini_batch_size = network->mini_batch_results.nmemb;
       for (u32 k = 0; k < training_data_count; k += mini_batch_size)
         {
@@ -589,13 +526,16 @@ network_sgd (Network *network, float *training_data, u32 training_data_count,
           update_mini_batch (network, mini_batch, actual_batch_size, eta, lmbda,
                              training_data_count);
         }
+      u64 end_tick = get_ticks ();
 
-      printf ("epoch %u done\n", j);
+      printf ("epoch %u done in %.3fs\n", j,
+              (float) (end_tick - start_tick) / TICKS_PER_SECOND);
       u32 correct_count = 0;
       for (u32 k = 0; k < evaluation_data_count; ++k)
         {
           float *sample = evaluation_data + (sample_size * k);
-          if (evaluate (network, sample, sample + network->layers.base[0].width))
+          if (evaluate_network (network, sample,
+                                sample + network->layers.base[0].width))
             ++correct_count;
         }
       printf ("Accuracy on evaluation data: %u / %u\n",

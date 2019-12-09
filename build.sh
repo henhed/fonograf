@@ -5,16 +5,16 @@ set -e
 CC="$(which clang)"
 
 CFLAGS=(
-  -std=gnu11
+  -std=gnu11 # For MAP_ANONYMOUS and asm
   -Wall
   -Wextra
   -ggdb
   -msse4.1
   -ffast-math
+  -O3
   $(pkg-config --cflags alsa)
   $(pkg-config --cflags x11)
   $(pkg-config --cflags xrandr)
-  -D_GNU_SOURCE # For MAP_ANONYMOUS
   -Wno-gnu-alignof-expression
 )
 

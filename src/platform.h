@@ -1,6 +1,8 @@
 #ifndef PLATFORM_H
 #define PLATFORM_H 1
 
+#define TICKS_PER_SECOND 1000000000
+
 #define ARRAY_COUNT(array) (sizeof (array) / sizeof ((array)[0]))
 
 #define MAX(a, b)                               \
@@ -36,6 +38,7 @@ typedef struct
   void          (*destroy_work_queue)   (WorkQueue *);
   void          (*enqueue_work)         (WorkQueue *, WorkQueueCallback, void *);
   void          (*complete_all_work)    (WorkQueue *);
+  u64           (*get_ticks)            (void);
   struct
   {
     u32 width;
@@ -53,5 +56,7 @@ extern PlatformApi *g_platform;
   g_platform->enqueue_work ((queue), (callback), (data))
 #define complete_all_work(queue) \
   g_platform->complete_all_work (queue)
+#define get_ticks() \
+  g_platform->get_ticks ()
 
 #endif /* ! PLATFORM_H */

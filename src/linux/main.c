@@ -1,5 +1,3 @@
-#define TICKS_PER_SECOND 1000000000
-
 #include "../types.h"
 #include "../platform.h"
 
@@ -52,6 +50,7 @@ static PlatformApi linux_platform = {
   .destroy_work_queue   = linux_destroy_work_queue,
   .enqueue_work         = linux_enqueue_work,
   .complete_all_work    = linux_complete_all_work,
+  .get_ticks            = linux_get_ticks,
   .window = {
     .width = 800,
     .height = 600

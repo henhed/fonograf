@@ -49,7 +49,7 @@ do_training_work (void *user_data)
 
   assert (num_labels == num_images);
 
-  srand (time (NULL));
+  /* srand (time (NULL)); */
 
   u32 images_buffer_size = ((num_rows * num_cols) + 10) * num_images; // +10 for labels
   float *images_buffer = push_array (&app_network->mpool, float, images_buffer_size,
@@ -118,8 +118,8 @@ app_update_ui (struct nk_context *ctx, float dt)
       struct nk_command_buffer *canvas = nk_window_get_canvas (ctx);
       struct nk_rect size = nk_layout_space_bounds (ctx);
       float ui_y = size.y + 20;
-      float cell_width  = 1.f;
-      float cell_height = 1.f;
+      float cell_width  = 2.f;
+      float cell_height = 2.f;
 
       for (u32 i = 0; i < app_network->layers.nmemb; ++i)
         {
@@ -128,6 +128,21 @@ app_update_ui (struct nk_context *ctx, float dt)
           u32 height = layer->height;
           for (u32 y = 0; y < height; ++y)
             {
+              {
+                float value  = layer->biases[y];
+                float red    = (value < 0) ? MIN (-value, 4.f) : 0;
+                float green  = (value > 0) ? MIN ( value, 4.f) : 0;
+                float blue   = 4.f - (red + green);
+                nk_fill_rect (canvas,
+                              nk_rect (size.x,
+                                       ui_y + (y * cell_height),
+                                       cell_width,
+                                       cell_height),
+                              0.f,
+                              nk_rgb ((int) (red   * 64),
+                                      (int) (green * 64),
+                                      (int) (blue  * 64)));
+              }
               for (u32 x = 0, offset = y * width; x < width; ++x)
                 {
                   float value  = layer->weights[offset + x];
@@ -135,7 +150,7 @@ app_update_ui (struct nk_context *ctx, float dt)
                   float green  = (value > 0) ? MIN ( value, 4.f) : 0;
                   float blue   = 4.f - (red + green);
                   nk_fill_rect (canvas,
-                                nk_rect (size.x + (x * cell_width),
+                                nk_rect (size.x + ((x + 2) * cell_width),
                                          ui_y + (y * cell_height),
                                          cell_width,
                                          cell_height),
@@ -147,29 +162,8 @@ app_update_ui (struct nk_context *ctx, float dt)
             }
           ui_y += (height * cell_height) + 20;
 
-          cell_width  *= 3;
-          cell_height *= 3;
-
-          for (u32 y = 0; y < height; ++y)
-            {
-              float value  = layer->biases[y];
-              float red    = (value < 0) ? MIN (-value, 4.f) : 0;
-              float green  = (value > 0) ? MIN ( value, 4.f) : 0;
-              float blue   = 4.f - (red + green);
-              nk_fill_rect (canvas,
-                            nk_rect (size.x,
-                                     ui_y + (y * cell_height),
-                                     cell_width,
-                                     cell_height),
-                            0.f,
-                            nk_rgb ((int) (red   * 64),
-                                    (int) (green * 64),
-                                    (int) (blue  * 64)));
-            }
-          ui_y += (height * cell_height) + 20;
-
-          cell_width  *= 3;
-          cell_height *= 3;
+          cell_width  *= 2;
+          cell_height *= 2;
         }
     }
   nk_end (ctx);
