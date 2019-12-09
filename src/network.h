@@ -4,47 +4,6 @@
 #include "memory.h"
 #include "maths.h"
 
-/* void */
-/* tensor_sum_product (const Tensor *a, const Tensor *b, Tensor *out) */
-/* { */
-/*   u32 aw = a->width; */
-/*   u32 ah = a->height; */
-/*   u32 bw = b->width; */
-/*   u32 bh = b->height; */
-/*   u32 ow = out->width; */
-/*   u32 oh = out->height; */
-
-/*   assert (ow == bw); */
-/*   assert (oh == ah); */
-/*   assert (aw == bh); */
-
-/*   /\* if ((aw == 1) && (bh == 1)) *\/ */
-/*   /\*   { *\/ */
-/*   /\*     for (u32 y = 0; y < ah; ++y) *\/ */
-/*   /\*       { *\/ */
-/*   /\*         __m128 a4 = _mm_set1_ps (a->base[y]); *\/ */
-/*   /\*         for (u32 x = 0, offset = y * bw; x < bw; x += 4) *\/ */
-/*   /\*           { *\/ */
-/*   /\*             __m128 b4 = _mm_load_ps (b->base + x); *\/ */
-/*   /\*             __m128 v4 = _mm_mul_ps (a4, b4); *\/ */
-/*   /\*             _mm_storeu_ps (out->base + offset + x, v4); *\/ */
-/*   /\*           } *\/ */
-/*   /\*       } *\/ */
-/*   /\*     return; *\/ */
-/*   /\*   } *\/ */
-
-/*   for (u32 y = 0; y < oh; ++y) */
-/*     { */
-/*       for (u32 x = 0, oy = y * ow; x < ow; ++x) */
-/*         { */
-/*           u32 ox = oy + x; */
-/*           out->base[ox] = 0; */
-/*           for (u32 i = 0; i < aw; ++i) */
-/*             out->base[ox] += a->base[(y * aw) + i] * b->base[(i * bw) + x]; */
-/*         } */
-/*     } */
-/* } */
-
 typedef struct _Network Network;
 
 typedef struct
@@ -295,21 +254,22 @@ mat_1n_mat_m1_product (const float *a, const float *b, u32 n, u32 m, float *out)
 }
 
 static inline float
-cost (const float *a, const float *y, u32 nmemb)
+network_cost (const float *a, const float *y, u32 nmemb)
 {
-  float norm = 0.f;
+  float sum = 0.f;
   for (u32 i = 0; i < nmemb; ++i)
     {
-      float d = ABS (a[i] - y[i]);
-      norm += d * d;
+      float v = (-y[i] * logf (a[i])) - ((1.f - y[i]) * logf (1.f - a[i]));
+      int isnan (float); // #include <math.h>
+      if (!isnan (v))
+        sum += v;
     }
-  norm = powf (norm, .5f);
-  return .5f * (norm * norm);
+  return sum;
 }
 
 static inline void
-cost_derivative (const float *activations, const float *truth, const float *zs,
-                 u32 nmemb, float *output)
+network_cost_derivative (const float *activations, const float *truth,
+                         const float *zs, u32 nmemb, float *output)
 {
   for (u32 i = 0; i < nmemb; ++i)
     {
@@ -368,6 +328,50 @@ evaluate_network (Network *network, float *x, float *y)
   return success;
 }
 
+static inline float
+total_network_cost (Network *network, float *evaluation_data,
+                    u32 evaluation_data_count, u32 sample_size,
+                    float lambda)
+{
+  float cost = 0.f;
+
+  ForwardResult *fr = network->validation_forward_result;
+  assert (fr->layers.nmemb == network->layers.nmemb);
+
+  u32 input_size = network->layers.base[0].width;
+  u32 output_size = network->layers.base[network->layers.nmemb - 1].height;
+
+  for (u32 k = 0; k < evaluation_data_count; ++k)
+    {
+      float *x = evaluation_data + (sample_size * k);
+      float *y = x + input_size;
+      feedforward (network, x, fr);
+      float *a = fr->layers.base[fr->layers.nmemb - 1].activation;
+      cost += network_cost (a, y, output_size) / evaluation_data_count;
+    }
+
+  float norm_sum = 0.f;
+  for (u32 i = 0; i < network->layers.nmemb; ++i)
+    {
+      NetworkLayer *layer = &network->layers.base[i];
+      float norm = 0.f;
+      for (u32 y = 0; y < layer->height; ++y)
+        {
+          for (u32 x = 0, offset = y * layer->width; x < layer->width; ++x)
+            {
+              float w = ABS (layer->weights[offset + x]);
+              norm += w * w;
+            }
+        }
+      norm = powf (norm, .5f);
+      norm_sum += norm;
+    }
+
+  cost += .5f * (lambda / evaluation_data_count) * norm_sum;
+
+  return cost;
+}
+
 static inline void
 backprop (Network *network, float *x, float *y,
           ForwardResult *fr, BackwardResult *br)
@@ -385,11 +389,11 @@ backprop (Network *network, float *x, float *y,
     activations[i + 1] = fr->layers.base[i].activation;
 
   float *delta = br->layers.base[nlayers - 1].delta_b;
-  cost_derivative (activations[nlayers],
-                   y,
-                   fr->layers.base[nlayers - 1].zs,
-                   br->layers.base[nlayers - 1].height,
-                   delta);
+  network_cost_derivative (activations[nlayers],
+                           y,
+                           fr->layers.base[nlayers - 1].zs,
+                           br->layers.base[nlayers - 1].height,
+                           delta);
   mat_1n_mat_m1_product (delta,
                          activations[nlayers - 1],
                          br->layers.base[nlayers - 1].height,
@@ -530,6 +534,7 @@ network_sgd (Network *network, float *training_data, u32 training_data_count,
 
       printf ("epoch %u done in %.3fs\n", j,
               (float) (end_tick - start_tick) / TICKS_PER_SECOND);
+
       u32 correct_count = 0;
       for (u32 k = 0; k < evaluation_data_count; ++k)
         {
@@ -538,8 +543,13 @@ network_sgd (Network *network, float *training_data, u32 training_data_count,
                                 sample + network->layers.base[0].width))
             ++correct_count;
         }
-      printf ("Accuracy on evaluation data: %u / %u\n",
-              correct_count, evaluation_data_count);
+
+      float cost = total_network_cost (network, evaluation_data,
+                                       evaluation_data_count,
+                                       sample_size, lmbda);
+
+      printf ("Accuracy on evaluation data: %u / %u, cost: %f\n",
+              correct_count, evaluation_data_count, cost);
     }
 }
 
